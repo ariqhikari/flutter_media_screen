@@ -44,7 +44,6 @@ class ScreenCaptureService: Service() {
     startForeground(NOTIF_ID, makeNotification())
     handlerThread = HandlerThread("CaptureThread").apply { start() }
 
-
     // Siapkan ImageReader untuk capture frame
     val metrics = resources.displayMetrics
     imageReader = ImageReader.newInstance(
@@ -53,6 +52,7 @@ class ScreenCaptureService: Service() {
       PixelFormat.RGBA_8888,
       3
     )
+
     val handler = Handler(handlerThread.looper)
     imageReader.setOnImageAvailableListener({ reader ->
       val image = try {
@@ -80,6 +80,15 @@ class ScreenCaptureService: Service() {
 
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
+
+            // Jika ada padding, salin per baris:
+            if (rowStride != width * pixelStride) {
+                for (y in 0 until height) {
+                    val rowStart = y * rowStride
+                    buffer.position(rowStart)
+                    buffer.get(bytes, y * width * pixelStride, width * pixelStride)
+                }
+            }
 
             Handler(Looper.getMainLooper()).post {
                 eventSink?.success(

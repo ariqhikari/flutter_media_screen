@@ -31,16 +31,19 @@ class ScreenCaptureService: Service() {
     private var instance: ScreenCaptureService? = null
   }
 
-  private lateinit var mediaProjection: MediaProjection
-  private lateinit var imageReader: ImageReader
-  private lateinit var handlerThread: HandlerThread
+    private lateinit var mediaProjection: MediaProjection
+    private lateinit var imageReader: ImageReader
+    private lateinit var handlerThread: HandlerThread
+    private var isSendingFrame = false
 
-  override fun onCreate() {
+
+    override fun onCreate() {
     super.onCreate()
-    handlerThread = HandlerThread("CaptureThread").apply { start() }
     instance = this
     createNotificationChannel()
     startForeground(NOTIF_ID, makeNotification())
+    handlerThread = HandlerThread("CaptureThread").apply { start() }
+
 
     // Siapkan ImageReader untuk capture frame
     val metrics = resources.displayMetrics
@@ -50,7 +53,6 @@ class ScreenCaptureService: Service() {
       PixelFormat.RGBA_8888,
       3
     )
-    val handlerThread = HandlerThread("CaptureThread").apply { start() }
     val handler = Handler(handlerThread.looper)
     imageReader.setOnImageAvailableListener({ reader ->
       val image = try {
@@ -62,43 +64,39 @@ class ScreenCaptureService: Service() {
 
       if (image == null) return@setOnImageAvailableListener
 
-      try {
-          // Akses properti gambar SEBELUM menutup
-          val plane = image.planes[0]
-          val buffer = plane.buffer
-          val pixelStride = plane.pixelStride
-          val rowStride = plane.rowStride
-          val width = image.width
-          val height = image.height
+        try {
+            if (isSendingFrame) {
+                image.close()
+                return@setOnImageAvailableListener
+            }
+            isSendingFrame = true
 
-          // Salin data buffer ke byte array
-          val bytes = ByteArray(buffer.remaining())
-          buffer.get(bytes) // Salin langsung jika tidak ada padding
+            val plane = image.planes[0]
+            val buffer = plane.buffer
+            val pixelStride = plane.pixelStride
+            val rowStride = plane.rowStride
+            val width = image.width
+            val height = image.height
 
-          // Jika ada padding, salin per baris:
-          if (rowStride != width * pixelStride) {
-              for (y in 0 until height) {
-                  val rowStart = y * rowStride
-                  buffer.position(rowStart)
-                  buffer.get(bytes, y * width * pixelStride, width * pixelStride)
-              }
-          }
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
 
-          // Kirim ke Dart
-          Handler(Looper.getMainLooper()).post {
-              eventSink?.success(
-                  hashMapOf(
-                      "bytes" to bytes,
-                      "metadata" to mapOf("width" to width, "height" to height)
-                  )
-              )
-          }
-      } catch (e: IllegalStateException) {
-          Log.e("ScreenCapture", "Gambar sudah ditutup: ${e.message}")
-      } finally {
-          image.close() // Pastikan gambar ditutup
-      }
-    }, handler)
+            Handler(Looper.getMainLooper()).post {
+                eventSink?.success(
+                    hashMapOf(
+                        "bytes" to bytes,
+                        "metadata" to mapOf("width" to width, "height" to height)
+                    )
+                )
+                isSendingFrame = false
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCapture", "Error saat proses frame: ${e.message}")
+            isSendingFrame = false
+        } finally {
+            image.close()
+        }
+    }, Handler(handlerThread.looper))
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -112,9 +110,11 @@ class ScreenCaptureService: Service() {
     // 1. Daftarkan MediaProjection.Callback untuk menangani lifecycle
     mediaProjection.registerCallback(object : MediaProjection.Callback() {
         override fun onStop() {
-            stopSelf() // Hentikan service saat projection dihentikan
+            Log.e("ScreenCapture", "MediaProjection dihentikan!")
+            eventSink?.endOfStream()  // Tutup event channel agar tidak error di Dart
+            stopSelf()
         }
-    }, null) // Handler null untuk default
+    }, Handler(Looper.getMainLooper())) // Handler null untuk default
     
     // 2. Panggil createVirtualDisplay dengan parameter yang benar
     val virtualDisplay = mediaProjection.createVirtualDisplay(
@@ -147,14 +147,20 @@ class ScreenCaptureService: Service() {
       .createNotificationChannel(channel)
   }
 
-  override fun onDestroy() {
-    handlerThread.quitSafely()
-    mediaProjection.stop() // Hentikan projection
-    imageReader.close()    // Tutup ImageReader
-    super.onDestroy()
-  }
+    override fun onDestroy() {
+        handlerThread.quitSafely()
+        try {
+            mediaProjection.stop()
+        } catch (e: Exception) {
+            Log.e("ScreenCapture", "Error stopping projection: ${e.message}")
+        }
+        imageReader.close()
+        eventSink = null
+        super.onDestroy()
+    }
 
-  private fun makeNotification(): Notification =
+
+    private fun makeNotification(): Notification =
     Notification.Builder(this, "screen_capture")
       .setContentTitle("Parental Control")
       .setContentText("Screen capture aktif")

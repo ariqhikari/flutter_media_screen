@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 // import 'package:tflite_flutter/tflite_flutter.dart';
@@ -31,6 +30,12 @@ class HomePageState extends State<HomePage> {
   bool _isMonitoring = false;
   StreamSubscription? _subscription;
 
+  // Resolusi frame asli (sesuaikan dengan device)
+  final int frameWidth = 1080;
+  final int frameHeight = 2340;
+
+  DateTime _lastProcessed = DateTime.now().subtract(Duration(seconds: 2));
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +62,13 @@ class HomePageState extends State<HomePage> {
   }
 
   Future<void> _processFrame(dynamic rawData) async {
+    // Batas waktu 2 detik
+    final now = DateTime.now();
+    if (now.difference(_lastProcessed) < Duration(seconds: 2)) {
+      return;
+    }
+    _lastProcessed = now;
+
     if (rawData is! Map) {
       print("Format data tidak valid (bukan Map)!");
       return;
@@ -66,12 +78,14 @@ class HomePageState extends State<HomePage> {
       final rawMap = Map<String, dynamic>.from(rawData);
       final bytes = rawMap['bytes'] as Uint8List;
       final metadata = Map<String, dynamic>.from(rawMap['metadata'] as Map);
-      final width = metadata['width'] as int;
-      final height = metadata['height'] as int;
+      final frameW = metadata['width'] as int;
+      final frameH = metadata['height'] as int;
+
+      print("[DEBUG] Metadata: $metadata");
 
       final image = img.Image.fromBytes(
-        width: width,
-        height: height,
+        width: frameW,
+        height: frameH,
         bytes: bytes.buffer,
         order: img.ChannelOrder.rgba,
       );
@@ -79,12 +93,20 @@ class HomePageState extends State<HomePage> {
       final preview = img.copyResize(image, width: 360);
       final jpeg = Uint8List.fromList(img.encodeJpg(preview));
 
-      Future.delayed(Duration(seconds: 2), () {
-        print("[DEBUG] BLOCK SCREEN");
-        // _blockScreen();
-        // aku ubah sementara soalnya keblokir, jadi harus restart hp
-        _unblockScreen();
+      // === 1. Jalankan model / deteksi yang menghasilkan list bounding‐box ===
+      // Contoh dummy: deteksi 2 kotak berbahaya
+      final random = Random();
+      final detectedBoxes = List.generate(1, (_) {
+        final w = 100 + random.nextInt(frameW ~/ 2);
+        final h = 100 + random.nextInt(frameH ~/ 2);
+        final x = random.nextInt(frameW - w);
+        final y = random.nextInt(frameH - h);
+        return {'x': x, 'y': y, 'w': w, 'h': h};
       });
+
+      print("[DEBUG] Detected boxes: $detectedBoxes");
+      print("[DEBUG] BLOCK SCREEN");
+      _blockScreen(detectedBoxes);
 
       if (mounted) {
         setState(() {
@@ -96,17 +118,18 @@ class HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _blockScreen() async {
+  Future<void> _blockScreen(List<Map<String, int>> detectedBoxes) async {
     try {
-      await _overlayChannel.invokeMethod('showOverlay');
+      await _overlayChannel.invokeMethod(
+          'showMultipleRegionOverlay', detectedBoxes);
     } catch (e) {
-      print("Gagal memanggil showOverlay: $e");
+      print("Error panggil showMultipleRegionOverlay: $e");
     }
   }
 
   Future<void> _unblockScreen() async {
     try {
-      await _overlayChannel.invokeMethod('removeOverlay');
+      await _overlayChannel.invokeMethod('removeAllRegionOverlay');
     } catch (e) {
       print("Gagal memanggil removeOverlay: $e");
     }
@@ -114,45 +137,45 @@ class HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(title: Text('Parental Control')),
-    body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _lastJpeg != null
-              ? Column(
+        appBar: AppBar(title: Text('Parental Control')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('Latest frame:'),
-              SizedBox(height: 10),
-              Image.memory(
-                _lastJpeg!,
-                gaplessPlayback: true,
-                fit: BoxFit.contain,
-                height: 300,
-              ),
+              _lastJpeg != null
+                  ? Column(
+                      children: [
+                        Text('Latest frame:'),
+                        SizedBox(height: 10),
+                        Image.memory(
+                          _lastJpeg!,
+                          gaplessPlayback: true,
+                          fit: BoxFit.contain,
+                          height: 300,
+                        ),
+                        SizedBox(height: 20),
+                      ],
+                    )
+                  : Text(
+                      'Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
               SizedBox(height: 20),
+              _isMonitoring
+                  ? ElevatedButton.icon(
+                      onPressed: _stopCapture,
+                      icon: Icon(Icons.stop),
+                      label: Text('Stop Monitoring'),
+                      style:
+                          ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: _initCapture,
+                      icon: Icon(Icons.play_arrow),
+                      label: Text('Start Monitoring'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green),
+                    ),
             ],
-          )
-              : Text('Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
-
-          SizedBox(height: 20),
-
-          _isMonitoring
-              ? ElevatedButton.icon(
-            onPressed: _stopCapture,
-            icon: Icon(Icons.stop),
-            label: Text('Stop Monitoring'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          )
-              : ElevatedButton.icon(
-            onPressed: _initCapture,
-            icon: Icon(Icons.play_arrow),
-            label: Text('Start Monitoring'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 }
-

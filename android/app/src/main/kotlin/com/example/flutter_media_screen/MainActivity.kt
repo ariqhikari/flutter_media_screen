@@ -47,17 +47,30 @@ class MainActivity: FlutterActivity() {
         }
       })
 
-    // 3) MethodChannel untuk overlay control
+    // 3) MethodChannel yang sama (“overlay_control”) untuk region overlay
     MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY)
       .setMethodCallHandler { call, result ->
         when (call.method) {
-          "showOverlay" -> {
-            // Panggil fungsi statis di service
-            ScreenCaptureService.serviceInstance?.showOverlay()
+          "showMultipleRegionOverlay" -> {
+            @Suppress("UNCHECKED_CAST")
+            val list = call.arguments as? List<Map<String, Any>>
+            if (list != null) {
+              // Konversi menjadi List<Map<String, Int>>
+              val boxes = list.mapNotNull { item ->
+                val x = (item["x"] as? Number)?.toInt()
+                val y = (item["y"] as? Number)?.toInt()
+                val w = (item["w"] as? Number)?.toInt()
+                val h = (item["h"] as? Number)?.toInt()
+                if (x != null && y != null && w != null && h != null) {
+                  mapOf("x" to x, "y" to y, "w" to w, "h" to h)
+                } else null
+              }
+              ScreenCaptureService.serviceInstance?.showMultipleRegionOverlays(boxes)
+            }
             result.success(null)
           }
-          "removeOverlay" -> {
-            ScreenCaptureService.serviceInstance?.removeOverlay()
+          "removeAllRegionOverlay" -> {
+            ScreenCaptureService.serviceInstance?.removeAllRegionOverlays()
             result.success(null)
           }
           else -> result.notImplemented()

@@ -11,6 +11,7 @@ import io.flutter.plugin.common.EventChannel
 class MainActivity: FlutterActivity() {
   private val CHANNEL = "screen_capture"
   private val STREAM = "screen_stream"
+  private val OVERLAY = "overlay_control" 
   private val REQUEST_CODE = 1001
   private lateinit var mediaProjectionManager: MediaProjectionManager
   private var pendingResult: MethodChannel.Result? = null
@@ -45,6 +46,23 @@ class MainActivity: FlutterActivity() {
           ScreenCaptureService.stopProjection()
         }
       })
+
+    // 3) MethodChannel untuk overlay control
+    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY)
+      .setMethodCallHandler { call, result ->
+        when (call.method) {
+          "showOverlay" -> {
+            // Panggil fungsi statis di service
+            ScreenCaptureService.serviceInstance?.showOverlay()
+            result.success(null)
+          }
+          "removeOverlay" -> {
+            ScreenCaptureService.serviceInstance?.removeOverlay()
+            result.success(null)
+          }
+          else -> result.notImplemented()
+        }
+      }
   }
 
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

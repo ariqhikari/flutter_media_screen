@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 // import 'package:tflite_flutter/tflite_flutter.dart';
 import 'screen_capture.dart';
 import 'package:image/image.dart' as img;
@@ -22,6 +23,7 @@ class HomePage extends StatefulWidget {
 }
 
 class HomePageState extends State<HomePage> {
+  static const _overlayChannel = MethodChannel('overlay_control');
   final _sc = ScreenCapture();
   // Interpreter? _interpreter;
   Uint8List? _lastJpeg;
@@ -69,27 +71,42 @@ class HomePageState extends State<HomePage> {
       final preview = img.copyResize(image, width: 360);
       final jpeg = Uint8List.fromList(img.encodeJpg(preview));
 
-      Future.delayed(Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() {
-            _lastJpeg = jpeg;
-          });
-        }
+      Future.delayed(Duration(seconds: 2), () {
+        print("[DEBUG] BLOCK SCREEN");
+        _blockScreen();
       });
+
+      // Future.delayed(Duration(seconds: 4), () {
+      //   print("[DEBUG] UNBLOCK SCREEN");
+      //   _unblockScreen();
+      // });
+
+      // Future.delayed(Duration(seconds: 1), () {
+      //   if (mounted) {
+      //     setState(() {
+      //       _lastJpeg = jpeg;
+      //     });
+      //   }
+      // });
     } catch (e) {
       print("Error memproses frame: $e");
     }
   }
 
-  void _blockScreen() {
-    // Panggil overlay native atau tampilkan widget full-screen
-    showDialog(
-        context: context,
-        builder: (_) => Center(
-            child: Container(
-                color: Colors.black54,
-                child: Text('Konten Diblokir',
-                    style: TextStyle(color: Colors.white, fontSize: 24)))));
+  Future<void> _blockScreen() async {
+    try {
+      await _overlayChannel.invokeMethod('showOverlay');
+    } catch (e) {
+      print("Gagal memanggil showOverlay: $e");
+    }
+  }
+
+  Future<void> _unblockScreen() async {
+    try {
+      await _overlayChannel.invokeMethod('removeOverlay');
+    } catch (e) {
+      print("Gagal memanggil removeOverlay: $e");
+    }
   }
 
   @override

@@ -51,7 +51,11 @@ class ScreenCaptureService: Service() {
 
   // 🌟 Tambahan untuk overlay
   private lateinit var windowManager: WindowManager
+
+  /** Sekarang men‐menage banyak overlay, tapi kita akan update posisi jika jumlah sama */
   private val regionOverlays = mutableListOf<View>()
+  // Untuk melacak LayoutParams per setiap overlay
+  private val overlayParams = mutableListOf<WindowManager.LayoutParams>()
 
   override fun onCreate() {
     super.onCreate()
@@ -196,43 +200,65 @@ private fun createNotificationChannel() {
     .setSmallIcon(android.R.drawable.ic_menu_camera)
     .build()
 
-  // ----------------------------------
-  // Metode untuk multiple region overlay
-  // ----------------------------------
+  // ---------------------------------------------------
+  // Implementasi smooth update untuk multiple region overlay
+  // ---------------------------------------------------
 
-  /** Tampilkan sejumlah area berbahaya (x,y,w,h) sekaligus */
+  /**
+   * Perbarui daftar bounding box sehingga overlays bergerak smooth:
+   * - Jika jumlah overlay lama sama dengan jumlah box baru, cukup updateLayoutParams.
+   * - Jika jumlah berbeda, tambahkan atau hapus View separuh―agar count sama, lalu update.
+   */
   fun showMultipleRegionOverlays(boxes: List<Map<String, Int>>) {
-    // Hapus dulu overlay‐overlay lama
-    removeAllRegionOverlays()
-
-    // Buat overlay untuk tiap bounding box
-    for (box in boxes) {
-      val x = box["x"] ?: continue
-      val y = box["y"] ?: continue
-      val w = box["w"] ?: continue
-      val h = box["h"] ?: continue
-
-      val regionView = FrameLayout(this).apply {
-        val background = GradientDrawable()
-        background.setColor(0xCC000000.toInt()) 
-        background.cornerRadius = 30f 
-
-        this.background = background 
-
-        // Tambahkan TextView di tengah
-        val text = TextView(this@ScreenCaptureService).apply {
-          text = "Konten diblokir"
-          setTextColor(Color.WHITE)
-          setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-          gravity = Gravity.CENTER
+    // 1) Sesuaikan jumlah overlay: 
+    if (regionOverlays.size < boxes.size) {
+      // Buat view baru sebanyak selisih
+      val toCreate = boxes.size - regionOverlays.size
+      repeat(toCreate) {
+        val newView = createRegionOverlayView()
+        regionOverlays.add(newView)
+        overlayParams.add(WindowManager.LayoutParams()) // placeholder, nanti di‐set ulang
+        // Tambahkan ke windowManager dengan params dummy (0x0), lalu update di langkah berikutnya
+        val dummyParams = WindowManager.LayoutParams(
+          0, 0,
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+          else
+            WindowManager.LayoutParams.TYPE_PHONE,
+          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+          PixelFormat.TRANSLUCENT
+        ).apply {
+          gravity = Gravity.TOP or Gravity.START
+          x = 0
+          y = 0
         }
-        addView(text, FrameLayout.LayoutParams(
-          FrameLayout.LayoutParams.WRAP_CONTENT,
-          FrameLayout.LayoutParams.WRAP_CONTENT,
-          Gravity.CENTER
-        ))
+        windowManager.addView(newView, dummyParams)
+        overlayParams[overlayParams.size - 1] = dummyParams
       }
+    } else if (regionOverlays.size > boxes.size) {
+      // Hapus kelebihan view
+      val toRemove = regionOverlays.size - boxes.size
+      repeat(toRemove) {
+        val idx = regionOverlays.size - 1
+        val view = regionOverlays.removeAt(idx)
+        val params = overlayParams.removeAt(idx)
+        if (view.parent != null) {
+          windowManager.removeView(view)
+        }
+      }
+    }
 
+    // 2) Sekarang count == boxes.size, tinggal update posisi dan ukuran:
+    for (i in boxes.indices) {
+      val box = boxes[i]
+      val x = box["x"] ?: 0
+      val y = box["y"] ?: 0
+      val w = box["w"] ?: 0
+      val h = box["h"] ?: 0
+
+      // Update LayoutParams di index i
       val params = WindowManager.LayoutParams(
         w, h,
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -249,12 +275,32 @@ private fun createNotificationChannel() {
         this.y = y
       }
 
-      windowManager.addView(regionView, params)
-      regionOverlays.add(regionView)
+      val view = regionOverlays[i]
+      // Daripada removeView + addView, gunakan updateViewLayout
+      windowManager.updateViewLayout(view, params)
+      overlayParams[i] = params
     }
   }
 
-  /** Hapus semua region overlay yang ada */
+  /** Buat satu View overlay region dengan teks “Konten diblokir” di tengah */
+  private fun createRegionOverlayView(): View {
+    return FrameLayout(this).apply {
+      setBackgroundColor(0xCC000000.toInt()) // semi‐transparent hitam
+      val text = TextView(this@ScreenCaptureService).apply {
+        text = "Konten diblokir"
+        setTextColor(Color.WHITE)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        gravity = Gravity.CENTER
+      }
+      addView(text, FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.WRAP_CONTENT,
+        FrameLayout.LayoutParams.WRAP_CONTENT,
+        Gravity.CENTER
+      ))
+    }
+  }
+
+  /** Jika ingin benar‐benar menghapus semua overlay */
   fun removeAllRegionOverlays() {
     for (view in regionOverlays) {
       if (view.parent != null) {
@@ -262,5 +308,6 @@ private fun createNotificationChannel() {
       }
     }
     regionOverlays.clear()
+    overlayParams.clear()
   }
 }

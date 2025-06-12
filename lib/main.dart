@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:minimize_flutter_app/minimize_flutter_app.dart';
 import 'screen_capture.dart';
 import 'package:image/image.dart' as img;
 
@@ -136,46 +136,52 @@ class HomePageState extends State<HomePage> {
   }
 
   @override
-  Widget build(BuildContext c) => Scaffold(
-        appBar: AppBar(title: Text('Parental Control')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _lastJpeg != null
-                  ? Column(
-                      children: [
-                        Text('Latest frame:'),
-                        SizedBox(height: 10),
-                        Image.memory(
-                          _lastJpeg!,
-                          gaplessPlayback: true,
-                          fit: BoxFit.contain,
-                          height: 300,
-                        ),
-                        SizedBox(height: 20),
-                      ],
-                    )
-                  : Text(
-                      'Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
-              SizedBox(height: 20),
-              _isMonitoring
-                  ? ElevatedButton.icon(
-                      onPressed: _stopCapture,
-                      icon: Icon(Icons.stop),
-                      label: Text('Stop Monitoring'),
-                      style:
-                          ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: _initCapture,
-                      icon: Icon(Icons.play_arrow),
-                      label: Text('Start Monitoring'),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green),
-                    ),
-            ],
+  Widget build(BuildContext c) => WillPopScope(
+    onWillPop:() async {
+      await MinimizeFlutterApp.minimizeApp();
+      return false;
+    },
+    child: Scaffold(
+          appBar: AppBar(title: Text('Parental Control')),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _lastJpeg != null
+                    ? Column(
+                        children: [
+                          Text('Latest frame:'),
+                          SizedBox(height: 10),
+                          Image.memory(
+                            _lastJpeg!,
+                            gaplessPlayback: true,
+                            fit: BoxFit.contain,
+                            height: 300,
+                          ),
+                          SizedBox(height: 20),
+                        ],
+                      )
+                    : Text(
+                        'Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
+                SizedBox(height: 20),
+                _isMonitoring
+                    ? ElevatedButton.icon(
+                        onPressed: _stopCapture,
+                        icon: Icon(Icons.stop),
+                        label: Text('Stop Monitoring'),
+                        style:
+                            ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: _initCapture,
+                        icon: Icon(Icons.play_arrow),
+                        label: Text('Start Monitoring'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green),
+                      ),
+              ],
+            ),
           ),
         ),
-      );
+  );
 }

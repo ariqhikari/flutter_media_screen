@@ -21,6 +21,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Button
 import android.hardware.display.DisplayManager
 import io.flutter.plugin.common.EventChannel
 
@@ -56,6 +57,11 @@ class ScreenCaptureService: Service() {
       // Pre-inflate overlay satu kali
       overlayView = LayoutInflater.from(this)
         .inflate(R.layout.overlay_layout, null)
+
+      // Cari tombol unblock dan set listener
+      overlayView?.findViewById<Button>(R.id.btn_unblock)?.setOnClickListener {
+        removeOverlay()
+      }
 
       createNotificationChannel()
       startForeground(NOTIF_ID, makeNotification())

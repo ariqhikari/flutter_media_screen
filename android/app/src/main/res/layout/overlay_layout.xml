@@ -12,4 +12,16 @@
         android:textColor="#FFFFFF"
         android:textSize="24sp"
         android:layout_gravity="center"/>
+
+    <!-- Tombol untuk unblock screen -->
+    <Button
+        android:id="@+id/btn_unblock"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Buka Blokir"
+        android:textAllCaps="false"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="32dp"
+        android:background="@android:drawable/btn_default"
+        android:textColor="#FFFFFF"/>
 </FrameLayout>

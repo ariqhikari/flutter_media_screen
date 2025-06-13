@@ -9,6 +9,10 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.EventChannel
 
 class MainActivity: FlutterActivity() {
+  companion object {
+    var flutterEngineInstance: FlutterEngine? = null
+  }
+
   private val CHANNEL = "screen_capture"
   private val STREAM = "screen_stream"
   private val OVERLAY = "overlay_control" 
@@ -18,6 +22,8 @@ class MainActivity: FlutterActivity() {
 
   override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
     super.configureFlutterEngine(flutterEngine)
+    flutterEngineInstance = flutterEngine
+
     mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
     // 1) MethodChannel untuk requestPermission

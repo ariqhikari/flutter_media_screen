@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// import 'package:tflite_flutter/tflite_flutter.dart';
 import 'screen_capture.dart';
 import 'package:image/image.dart' as img;
 
@@ -24,135 +22,136 @@ class HomePage extends StatefulWidget {
 }
 
 class HomePageState extends State<HomePage> {
-  static const _overlayChannel = MethodChannel('overlay_control');
+  // Channels
+  static const _captureControlChannel = MethodChannel('screen_capture');
+  static const _overlayControlChannel = MethodChannel('overlay_control');
+
   final _sc = ScreenCapture();
-  // Interpreter? _interpreter;
-  Uint8List? _lastJpeg;
-  bool _isMonitoring = false;
   StreamSubscription? _subscription;
+  bool _isMonitoring = false;
+  Uint8List? _lastJpeg;
 
   @override
   void initState() {
     super.initState();
-    // _loadModel();
+
+    // Handle enable/disable calls from AccessibilityService
+    _captureControlChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'enableCapture':
+          print("[DEBUG] enableCapture dipanggil");
+          await _startStreaming();
+          break;
+        case 'disableCapture':
+          print("[DEBUG] disableCapture dipanggil");
+          _stopStreaming();
+          break;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _initCapture() async {
     bool ok = await _sc.requestPermission();
     if (!ok) return;
 
-    _subscription = _sc.frameStream.listen(_processFrame);
-    setState(() {
-      _isMonitoring = true;
-    });
+    print("[DEBUG] Permission granted. Waiting for enableCapture...");
+    setState(() => _isMonitoring = true);
   }
 
   void _stopCapture() {
+    // 1) Stop listening
     _subscription?.cancel();
+    _subscription = null;
+
+    // 2) Reset UI state
     setState(() {
       _isMonitoring = false;
       _lastJpeg = null;
     });
-    _unblockScreen(); // optional: hilangkan overlay saat stop
+
+    // 3) Clear any overlay
+    _overlayControlChannel.invokeMethod('removeOverlay');
   }
 
   Future<void> _processFrame(dynamic rawData) async {
-    if (rawData is! Map) {
-      print("Format data tidak valid (bukan Map)!");
-      return;
-    }
-
+    if (rawData is! Map) return;
     try {
+      // Extract frame + metadata
       final rawMap = Map<String, dynamic>.from(rawData);
       final bytes = rawMap['bytes'] as Uint8List;
-      final metadata = Map<String, dynamic>.from(rawMap['metadata'] as Map);
-      final width = metadata['width'] as int;
-      final height = metadata['height'] as int;
+      final m = Map<String, dynamic>.from(rawMap['metadata'] as Map);
+      final w = m['width'] as int, h = m['height'] as int;
 
-      final image = img.Image.fromBytes(
-        width: width,
-        height: height,
+      // Decode & preview
+      final frame = img.Image.fromBytes(
+        width: w,
+        height: h,
         bytes: bytes.buffer,
         order: img.ChannelOrder.rgba,
       );
-
-      final preview = img.copyResize(image, width: 360);
+      final preview = img.copyResize(frame, width: 360);
       final jpeg = Uint8List.fromList(img.encodeJpg(preview));
 
-      Future.delayed(Duration(seconds: 2), () {
-        print("[DEBUG] BLOCK SCREEN");
-        // _blockScreen();
-        // aku ubah sementara soalnya keblokir, jadi harus restart hp
-        _unblockScreen();
-      });
+      // **Demo logic**: block ALWAYS. Replace with your model.
+      await _overlayControlChannel.invokeMethod('showOverlay');
 
-      if (mounted) {
-        setState(() {
-          _lastJpeg = jpeg;
-        });
-      }
+      // Update UI
+      if (mounted) setState(() => _lastJpeg = jpeg);
     } catch (e) {
-      print("Error memproses frame: $e");
+      print("Error processing frame: $e");
     }
   }
 
-  Future<void> _blockScreen() async {
-    try {
-      await _overlayChannel.invokeMethod('showOverlay');
-    } catch (e) {
-      print("Gagal memanggil showOverlay: $e");
-    }
+  Future<void> _startStreaming() async {
+    if (_subscription != null) return;
+    _subscription = _sc.frameStream.listen(_processFrame);
   }
 
-  Future<void> _unblockScreen() async {
-    try {
-      await _overlayChannel.invokeMethod('removeOverlay');
-    } catch (e) {
-      print("Gagal memanggil removeOverlay: $e");
-    }
+  void _stopStreaming() {
+    _subscription?.cancel();
+    _subscription = null;
+    _overlayControlChannel.invokeMethod('removeOverlay');
   }
 
   @override
   Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(title: Text('Parental Control')),
-    body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _lastJpeg != null
-              ? Column(
+        appBar: AppBar(title: Text('Parental Control')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('Latest frame:'),
-              SizedBox(height: 10),
-              Image.memory(
-                _lastJpeg!,
-                gaplessPlayback: true,
-                fit: BoxFit.contain,
-                height: 300,
-              ),
-              SizedBox(height: 20),
+              if (_lastJpeg != null) ...[
+                Text('Latest frame:'),
+                SizedBox(height: 10),
+                Image.memory(
+                  _lastJpeg!,
+                  gaplessPlayback: true,
+                  fit: BoxFit.contain,
+                  height: 300,
+                ),
+                SizedBox(height: 20),
+              ] else ...[
+                Text('Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
+                SizedBox(height: 20),
+              ],
+              ElevatedButton.icon(
+                onPressed: _isMonitoring
+                    ? null
+                    : _initCapture, // disable setelah granted
+                icon: Icon(Icons.security),
+                label: Text('Grant Permission'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                ),
+              )
             ],
-          )
-              : Text('Monitoring ${_isMonitoring ? "aktif" : "nonaktif"}...'),
-
-          SizedBox(height: 20),
-
-          _isMonitoring
-              ? ElevatedButton.icon(
-            onPressed: _stopCapture,
-            icon: Icon(Icons.stop),
-            label: Text('Stop Monitoring'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          )
-              : ElevatedButton.icon(
-            onPressed: _initCapture,
-            icon: Icon(Icons.play_arrow),
-            label: Text('Start Monitoring'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 }
-

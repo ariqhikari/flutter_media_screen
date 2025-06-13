@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:minimize_flutter_app/minimize_flutter_app.dart';
 import 'screen_capture.dart';
 import 'package:image/image.dart' as img;
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+
 
 void main() => runApp(MyApp());
 
@@ -41,6 +44,7 @@ class HomePageState extends State<HomePage> {
     super.initState();
     // _loadModel();
   }
+
 
   Future<void> _initCapture() async {
     bool ok = await _sc.requestPermission();
@@ -113,6 +117,7 @@ class HomePageState extends State<HomePage> {
           _lastJpeg = jpeg;
         });
       }
+      await uploadCapturedImage(jpeg);
     } catch (e) {
       print("Error memproses frame: $e");
     }
@@ -134,6 +139,34 @@ class HomePageState extends State<HomePage> {
       print("Gagal memanggil removeOverlay: $e");
     }
   }
+
+  Future<void> uploadCapturedImage(Uint8List imageBytes) async {
+    final uri = Uri.parse('https://balancebites.auroraweb.id/analyze');
+
+    try {
+      final request = http.MultipartRequest('POST', uri)
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'file', // key dari form-data yang diharapkan server
+            imageBytes,
+            filename: 'capture.jpg',
+            contentType: MediaType('image', 'jpeg'),
+          ),
+        );
+
+      final response = await request.send();
+
+      if (response.statusCode == 200) {
+        final responseBody = await response.stream.bytesToString();
+        print('[UPLOAD] Berhasil: $responseBody');
+      } else {
+        print('[UPLOAD] Gagal: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('[UPLOAD] Error: $e');
+    }
+  }
+
 
   @override
   Widget build(BuildContext c) => WillPopScope(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'screen_capture.dart';
 import 'package:image/image.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:http/io_client.dart';
 
 
 void main() => runApp(MyApp());
@@ -144,23 +146,27 @@ class HomePageState extends State<HomePage> {
     final uri = Uri.parse('https://balancebites.auroraweb.id/analyze');
 
     try {
+      final httpClient = HttpClient()
+        ..badCertificateCallback =
+            (X509Certificate cert, String host, int port) => true; // abaikan SSL error
+
+      final ioClient = IOClient(httpClient);
+
       final request = http.MultipartRequest('POST', uri)
-        ..files.add(
-          http.MultipartFile.fromBytes(
-            'file', // key dari form-data yang diharapkan server
-            imageBytes,
-            filename: 'capture.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-        );
+        ..files.add(http.MultipartFile.fromBytes(
+          'file',
+          imageBytes,
+          filename: 'capture.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        ));
 
-      final response = await request.send();
+      final streamedResponse = await ioClient.send(request);
 
-      if (response.statusCode == 200) {
-        final responseBody = await response.stream.bytesToString();
+      if (streamedResponse.statusCode == 200) {
+        final responseBody = await streamedResponse.stream.bytesToString();
         print('[UPLOAD] Berhasil: $responseBody');
       } else {
-        print('[UPLOAD] Gagal: ${response.statusCode}');
+        print('[UPLOAD] Gagal: ${streamedResponse.statusCode}');
       }
     } catch (e) {
       print('[UPLOAD] Error: $e');
